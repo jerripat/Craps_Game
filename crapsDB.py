@@ -1,15 +1,13 @@
 import sqlite3
 
-
 class crapsDB:
     def __init__(self):
-        # Initialize database connection and cursor
         self.connection = sqlite3.connect('craps_database.db')
         self.cursor = self.connection.cursor()
         self._initialize_tables()
 
     def _initialize_tables(self):
-        # Create the craps_scores table if it doesn't exist
+        # Create tables if they don't exist
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS craps_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,8 +17,6 @@ class crapsDB:
             new_roll INTEGER DEFAULT 0
         )
         ''')
-
-        # Create the bank table if it doesn't exist
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS bank (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,10 +53,12 @@ class crapsDB:
     def print_all_records(self, table_name):
         # Print all records from the specified table
         records = self.get_all_data(table_name)
-        for record in records:
-            print(record)
+        if not records:
+            print(f"No records found in table '{table_name}'.")
+        else:
+            for record in records:
+                print(record)
 
     def close(self):
-        # Close the database connection
         if self.connection:
             self.connection.close()
