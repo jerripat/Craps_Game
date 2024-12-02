@@ -43,6 +43,13 @@ class CrapsGameApp:
         self.setup_images()
         self.setup_widgets()
 
+    def reset_point(self):
+        self.point = 0
+        self.point_label.config(text="Point: 0")
+        self.result_label.config(text="Roll the dice!")
+        self.score_label.config(text="Score: 0")
+        messagebox.showinfo("Game Update", "The point has been reset. Roll for a new point!")
+
     def update_balance_label(self):
         """Retrieve the latest balance from the database and update the GUI label."""
         balance = self.wager.get_balance()
