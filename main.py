@@ -1,211 +1,294 @@
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import Menu
 from PIL import Image, ImageTk
 import game_logic
 import crapsDB
 from wager import Wager
 from numbers import Numbers
 
-# Initialize the main window
-root = tk.Tk()
-root.title("Craps Game")
-root.geometry("500x400")
-root.configure(background="teal")
 
-# Load images and ensure they remain in scope
-try:
-    chips_image = Image.open("static/images/chips.png")
-    chips_image = chips_image.resize((75, 75), Image.LANCZOS)
-    chips_photo = ImageTk.PhotoImage(chips_image)
+class CrapsGameApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Craps Game")
+        self.root.geometry("500x400")
+        self.root.configure(background="teal")
 
-    dice_image = Image.open("static/images/Dice-icon.png")
-    dice_image = dice_image.resize((75, 75), Image.LANCZOS)
-    dice_photo = ImageTk.PhotoImage(dice_image)
-except FileNotFoundError as e:
-    print(f"Image not found: {e}")
-    exit()
+        # Initialize other attributes and setup GUI
+        self.point = 0
+        self.roll_number = 0
+        self.bet = 0
 
-# Add chips image to the GUI
-chips_label = tk.Label(root, image=chips_photo, bg="teal")
-chips_label.place(x=375, y=10)
+        self.cpDB = crapsDB.crapsDB()
+        self.wager = Wager()
+        self.wager.initialize_bank_record()
+        self.wager.initialize_roll_history()  # Initialize roll history table
+        self.pay = Numbers(0, self.bet)
+        self.dice = game_logic.Craps()
 
-# Initialize global variables
-point = 0
-roll_number = 0
-bet = 0
+        self.num_vars = {
+            4: tk.BooleanVar(),
+            5: tk.BooleanVar(),
+            6: tk.BooleanVar(),
+            8: tk.BooleanVar(),
+            9: tk.BooleanVar(),
+            10: tk.BooleanVar(),
+        }
 
-# Initialize CrapsDB and Wager instances
-cpDB = crapsDB.crapsDB()
-wager = Wager()
-wager.initialize_bank_record()  # Ensure the bank table has a default record
-pay = Numbers(0, bet)  # Initialize the Numbers class with the current bet
+        self.radio_wager = tk.IntVar()
 
-# Define variables for each Checkbutton
-num4_var = tk.BooleanVar()
-num5_var = tk.BooleanVar()
-num6_var = tk.BooleanVar()
-num8_var = tk.BooleanVar()
-num9_var = tk.BooleanVar()
-num10_var = tk.BooleanVar()
+        # Set up the GUI
+        self.setup_menu()
+        self.setup_images()
+        self.setup_widgets()
 
-# Function to handle checkbox selection
-def on_check(num, var):
-    if var.get():  # Only act if the checkbox is selected
-        print(f"Checkbox {num} selected")
-        process_number(num)
+    def update_balance_label(self):
+        """Retrieve the latest balance from the database and update the GUI label."""
+        balance = self.wager.get_balance()
+        self.show_balance_label.config(text=f"Balance: ${balance:.2f}")
 
-# Example processing function
-def process_number(num):
-    placeNums = []
-    placeNums.append(num)
-    for num in placeNums:
+    def setup_menu(self):
+        """Set up the menu with options for New Game, Show Database, and Show Roll History."""
+        menu_bar = Menu(self.root)
+
+        # File Menu
+        file_menu = Menu(menu_bar, tearoff=0)
+        file_menu.add_command(label="New Game", command=self.new_game)
+        file_menu.add_command(label="Show Database", command=self.show_database)
+        file_menu.add_command(label="Show Roll History", command=self.show_roll_history)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # Configure the menu bar
+        self.root.config(menu=menu_bar)
+
+    def setup_images(self):
+        try:
+            self.chips_photo = self.load_image("static/images/chips.png", (75, 75))
+            self.dice_photo = self.load_image("static/images/Dice-icon.png", (75, 75))
+        except FileNotFoundError as e:
+            messagebox.showerror("Error", f"Image not found: {e}")
+            self.root.quit()
+
+    @staticmethod
+    def load_image(path, size):
+        image = Image.open(path)
+        image = image.resize(size, Image.LANCZOS)
+        return ImageTk.PhotoImage(image)
+
+    def setup_widgets(self):
+        # Images
+        tk.Label(self.root, image=self.chips_photo, bg="teal").place(x=375, y=10)
+
+        # Labels
+        self.result_label = tk.Label(self.root, text="Roll the dice!", font=("Helvetica", 14), bg="teal", fg="white")
+        self.result_label.pack(pady=20)
+
+        self.score_label = tk.Label(self.root, text="Score: 0", font=("Helvetica", 12), bg="teal", fg="white")
+        self.score_label.pack(pady=10)
+
+        self.point_label = tk.Label(self.root, text="Point: 0", font=("Helvetica", 12), bg="teal", fg="white")
+        self.point_label.place(x=25, y=20)
+
+        self.show_balance_label = tk.Label(self.root, text="Balance: $0.00", font=("Helvetica", 10), bg="teal", fg="white")
+        self.show_balance_label.place(x=350, y=300)
+
+        # Checkbuttons for numbers
+        for num, x in zip(self.num_vars.keys(), range(160, 320, 30)):
+            cb = tk.Checkbutton(
+                self.root,
+                text=str(num),
+                variable=self.num_vars[num],
+                command=lambda n=num: self.on_check(n),
+                font=("Helvetica", 10),
+                bg="white",
+                fg="blue",
+            )
+            cb.place(x=x, y=130)
+
+        # Roll Dice button
+        tk.Button(
+            self.root,
+            image=self.dice_photo,
+            text="Roll Dice",
+            font=("Helvetica", 10),
+            command=self.roll_dice,
+            compound="top",
+            bg="white",
+            fg="blue",
+        ).place(x=200, y=170)
+
+        # Wager buttons
+        for val, amount, y in zip([1, 2, 3], [5, 10, 25], [130, 150, 170]):
+            tk.Radiobutton(
+                self.root,
+                text=f'${amount}',
+                variable=self.radio_wager,
+                value=val,
+                font=("Helvetica", 10),
+                bg="white",
+                fg="blue",
+            ).place(x=25, y=y)
+
+        tk.Button(
+            self.root,
+            text="Wager",
+            font=("Helvetica", 10),
+            command=self.insert_wager,
+            bg="white",
+            fg="green",
+        ).place(x=25, y=200)
+
+        # Deposit Section
+        self.deposit_entry = tk.Entry(self.root, font=("Helvetica", 10), width=8)
+        self.deposit_entry.place(x=30, y=300)
+
+        tk.Button(
+            self.root,
+            text="Deposit",
+            font=("Helvetica", 10),
+            command=self.bank_deposit,
+            bg="white",
+            fg="green",
+        ).place(x=30, y=330)
+
+    def new_game(self):
+        """Reset the game state."""
+        self.point = 0
+        self.roll_number = 0
+        self.bet = 0
+        self.update_balance_label()
+        self.point_label.config(text="Point: 0")
+        self.score_label.config(text="Score: 0")
+        self.result_label.config(text="Roll the dice!")
+        messagebox.showinfo("New Game", "Game reset! You can start a new game.")
+
+    def show_database(self):
+        """Retrieve and print all data in the bank table."""
+        try:
+            data = self.wager.cursor.execute("SELECT * FROM bank").fetchall()
+            if data:
+                print("Database Records:")
+                for row in data:
+                    print(row)
+
+                records = "\n".join([str(row) for row in data])
+                messagebox.showinfo("Database Records", f"Data in the database:\n{records}")
+            else:
+                messagebox.showinfo("Database Records", "No data available in the database.")
+        except Exception as e:
+            print(f"Error retrieving database records: {e}")
+            messagebox.showerror("Error", f"Failed to retrieve database records: {e}")
+
+    def show_roll_history(self):
+        """Retrieve and display all roll history records."""
+        try:
+            data = self.wager.cursor.execute("SELECT * FROM roll_history ORDER BY id DESC").fetchall()
+            if data:
+                print("Roll History:")
+                for row in data:
+                    print(row)
+
+                records = "\n".join([f"Roll {row[1]}: {row[2]}, {row[3]} (Score: {row[4]}) - {row[5]}" for row in data])
+                messagebox.showinfo("Roll History", f"Rolls:\n{records}")
+            else:
+                messagebox.showinfo("Roll History", "No rolls recorded yet.")
+        except Exception as e:
+            print(f"Error retrieving roll history: {e}")
+            messagebox.showerror("Error", f"Failed to retrieve roll history: {e}")
+
+    def on_check(self, num):
+        if self.num_vars[num].get():
+            print(f"Checkbox {num} selected")
+            self.process_number(num)
+
+    @staticmethod
+    def process_number(num):
         print(f"Processing number {num}")
 
-# Roll dice function
-def roll_dice():
-    global point, roll_number, bet
+    def roll_dice(self):
+        self.roll_number += 1  # Increment roll number
+        die1, die2 = self.dice.roll_dice()
+        score = die1 + die2
 
-    # Roll the dice
-    die1, die2 = dice.roll_dice()  # Use the game_logic.Craps class to roll dice
-    roll_number += 1
-    score = die1 + die2
+        # Log the roll to the database
+        self.wager.log_roll(self.roll_number, die1, die2, score)
 
-    # Display the dice roll results in the GUI
-    result_label.config(text=f"Dice rolled: {die1}, {die2}")
-    score_label.config(text=f"Score: {score}")
+        # Update the GUI with roll results
+        self.result_label.config(text=f"Dice rolled: {die1}, {die2}")
+        self.score_label.config(text=f"Score: {score}")
 
-    # Game logic: Check if we have a winner or point
-    if point == 0:  # Establishing the point
+        # Handle game logic
+        if self.point == 0:
+            self.handle_initial_roll(score)
+        else:
+            self.handle_point_roll(score)
+
+        # Update balance display
+        self.update_balance_label()
+
+    def handle_initial_roll(self, score):
         if score in [7, 11]:
             messagebox.showinfo("Craps", "You Win!")
-            wager.credit_winnings(bet)  # Add winnings to balance
+            self.wager.credit_winnings(self.bet)
         elif score in [2, 3, 12]:
             messagebox.showinfo("Craps", "Craps! You Lose!")
-            loss = abs(pay.payout(score=score, bet=bet))  # Calculate the absolute loss
-            wager.debit_losses(loss)  # Deduct losses
+            loss = self.bet
+            print(f"Losing {loss}. Debiting from balance.")  # Debugging
+            self.wager.debit_losses(loss)
+            self.update_balance_label()
         else:
-            point = score  # Set the point
-            point_label.config(text=f"Point: {point}")
-    else:  # Playing for the point
-        if score == point:
+            self.point = score
+            self.point_label.config(text=f"Point: {self.point}")
+
+    def handle_point_roll(self, score):
+        if score == self.point:
             messagebox.showinfo("Craps", "You Win!")
-            win = pay.payout(score=score, bet=bet)  # Calculate payout
-            wager.credit_winnings(win)  # Add winnings
-            point = 0  # Reset point
-            point_label.config(text="Point: 0")
+            win = self.pay.payout(score=score, bet=self.bet)
+            self.wager.credit_winnings(win)
+            self.reset_point()
         elif score == 7:
             messagebox.showinfo("Craps", "You Lose!")
-            loss = abs(pay.payout(score=score, bet=bet))  # Calculate the absolute loss
-            wager.debit_losses(loss)  # Deduct losses
-            point = 0  # Reset point
-            point_label.config(text="Point: 0")
+            loss = self.bet
+            print(f"Losing {loss}. Debiting from balance.")  # Debugging
+            self.wager.debit_losses(loss)
+            self.update_balance_label()
+            self.reset_point()
 
-    # Update the balance label after any balance change
-    show_balance_label.config(text=f"Balance: ${wager.get_balance():.2f}")
+    def update_balance_label(self):
+        balance = self.wager.get_balance()
+        print(f"Updated Balance: ${balance}")  # Debugging
+        self.show_balance_label.config(text=f"Balance: ${balance:.2f}")
 
-# Function to deposit money into the bank
-def bank_deposit():
-    try:
-        deposit_amount = float(deposit_entry.get())  # Get the deposit amount
-        if deposit_amount <= 0:
-            messagebox.showerror("Error", "Deposit amount must be greater than zero.")
+    def bank_deposit(self):
+        try:
+            deposit_amount = float(self.deposit_entry.get())
+            if deposit_amount <= 0:
+                raise ValueError("Deposit must be greater than zero.")
+            self.wager.bank_deposit(deposit_amount)
+            messagebox.showinfo("Success", f"Deposited ${deposit_amount:.2f} into your account.")
+            self.deposit_entry.delete(0, tk.END)
+            self.update_balance_label()
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+    def insert_wager(self):
+        wager_value = self.radio_wager.get()
+        self.bet = {1: 5, 2: 10, 3: 25}.get(wager_value, 0)
+        if self.bet <= 0:
+            messagebox.showerror("Error", "Please select a valid wager amount.")
             return
-        wager.bank_deposit(deposit_amount)  # Add deposit to the bank
-        messagebox.showinfo("Success", f"Deposited ${deposit_amount:.2f} into your account.")
-        deposit_entry.delete(0, tk.END)  # Clear the entry field after deposit
-    except ValueError:
-        messagebox.showerror("Error", "Invalid deposit amount. Please enter a numeric value.")
+        try:
+            self.wager.wager_deposit(self.bet)
+            messagebox.showinfo("Success", f"Placed a wager of ${self.bet}.")
+            self.update_balance_label()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
-# Function to insert a wager
-def insert_wager():
-    global bet
-    try:
-        wager_value = radio_wager.get()  # Get the wager amount from radio buttons
-        bet = {1: 5, 2: 10, 3: 25}.get(wager_value, 0)
 
-        if bet == 0:
-            messagebox.showerror("Error", "Please select a wager amount.")
-            return
-
-        wager.wager_deposit(bet)  # Update wager balance
-        new_balance = wager.get_balance()
-        show_balance_label.config(text=f"Balance: ${new_balance:.2f}")
-        messagebox.showinfo("Success", f"Placed a wager of ${bet}. Remaining balance: ${new_balance:.2f}")
-
-    except Exception as e:
-        messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
-
-# Dynamic creation of Checkbuttons
-checkbuttons = {
-    4: (num4_var, 160),
-    5: (num5_var, 190),
-    6: (num6_var, 220),
-    8: (num8_var, 250),
-    9: (num9_var, 280),
-    10: (num10_var, 310),
-}
-for num, (var, x) in checkbuttons.items():
-    cb = tk.Checkbutton(
-        root,
-        text=str(num),
-        variable=var,
-        command=lambda n=num, v=var: on_check(n, v),
-        font=("Helvetica", 10),
-        bg="white",
-        fg="blue",
-    )
-    cb.place(x=x, y=130)
-
-# Roll Dice button with dice image
-roll_button = tk.Button(
-    root,
-    image=dice_photo,
-    text="Roll Dice",
-    font=("Helvetica", 10),
-    command=roll_dice,  # Call the updated roll_dice function
-    compound="top",
-    bg="white",
-    fg="blue",
-)
-roll_button.place(x=200, y=170)
-
-# Wager buttons
-radio_wager = tk.IntVar()
-wager_radio_button5 = tk.Radiobutton(root, text='$5', variable=radio_wager, value=1, font=("Helvetica", 10),
-                                     bg="white", fg="blue")
-wager_radio_button5.place(x=25, y=130)
-wager_radio_button10 = tk.Radiobutton(root, text='$10', variable=radio_wager, value=2, font=("Helvetica", 10),
-                                      bg="white", fg="blue")
-wager_radio_button10.place(x=25, y=150)
-wager_radio_button25 = tk.Radiobutton(root, text='$25', variable=radio_wager, value=3, font=("Helvetica", 10),
-                                      bg="white", fg="blue")
-wager_radio_button25.place(x=25, y=170)
-
-wager_button = tk.Button(root, text="Wager", font=("Helvetica", 10), command=insert_wager, bg="white", fg="green")
-wager_button.place(x=25, y=200)
-
-# Deposit Section
-deposit_entry = tk.Entry(root, font=("Helvetica", 10), width=8)
-deposit_entry.place(x=30, y=300)
-
-deposit_button = tk.Button(root, text="Deposit", font=("Helvetica", 10), command=bank_deposit, bg="white", fg="green")
-deposit_button.place(x=30, y=330)
-
-# Labels
-result_label = tk.Label(root, text="Roll the dice!", font=("Helvetica", 14), bg="teal", fg="white")
-result_label.pack(pady=20)
-
-score_label = tk.Label(root, text="Score: 0", font=("Helvetica", 12), bg="teal", fg="white")
-score_label.pack(pady=10)
-
-point_label = tk.Label(root, text="Point: 0", font=("Helvetica", 12), bg="teal", fg="white")
-point_label.place(x=25, y=20)
-
-show_balance_label = tk.Label(root, text="Balance: $0.00", font=("Helvetica", 10), bg="teal", fg="white")
-show_balance_label.place(x=350, y=300)
-
-# Create Craps game instance
-dice = game_logic.Craps()
-
-# Run the main loop
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CrapsGameApp(root)  # Pass the root Tkinter object
+    root.mainloop()
